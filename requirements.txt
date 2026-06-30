@@ -4,3 +4,6 @@ python-multipart
 pdfplumber
 gunicorn
 pytesseract
+Pillow
+opencv-python
+pdf2image
