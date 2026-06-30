@@ -1,298 +1,88 @@
 import re
 
 
+PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
+TAN_RE = re.compile(r"^[A-Z]{4}[0-9]{5}[A-Z]$")
+AY_RE = re.compile(r"^\d{4}-\d{2}$")
+
+
 class Form16Validator:
 
-    def __init__(self, data: dict):
-        self.data = data
-
-    # ---------------------------------------
-    # PAN Validation
-    # ---------------------------------------
-
-    def validate_pan(self, pan):
-
-        if not pan:
-            return False
-
-        pattern = r"^[A-Z]{5}[0-9]{4}[A-Z]$"
-
-        return bool(re.match(pattern, pan))
-
-    # ---------------------------------------
-    # TAN Validation
-    # ---------------------------------------
-
-    def validate_tan(self, tan):
-
-        if not tan:
-            return False
-
-        pattern = r"^[A-Z]{4}[0-9]{5}[A-Z]$"
-
-        return bool(re.match(pattern, tan))
-
-    # ---------------------------------------
-    # AY Validation
-    # ---------------------------------------
-
-    def validate_assessment_year(self, ay):
-
-        if not ay:
-            return False
-
-        pattern = r"^\d{4}-\d{2}$"
-
-        return bool(re.match(pattern, ay))
-
-    # ---------------------------------------
-    # Salary Validation
-    # ---------------------------------------
-
-    def validate_salary(self):
-
-        warnings = []
-
-        salary = (
-            self.data
-            .get("structuredData", {})
-            .get("salary", {})
-        )
-
-        gross_salary = salary.get("salary17_1", 0)
-
-        taxable_salary = salary.get(
-            "incomeChargeableSalaries",
-            0
-        )
-
-        standard_deduction = salary.get(
-            "standardDeduction",
-            0
-        )
-
-        if gross_salary <= 0:
-            warnings.append(
-                "Gross salary not detected."
-            )
-
-        if taxable_salary < 0:
-            warnings.append(
-                "Taxable salary is invalid."
-            )
-
-        if standard_deduction > gross_salary:
-            warnings.append(
-                "Standard deduction exceeds salary."
-            )
-
-        return warnings
-
-    # ---------------------------------------
-    # Tax Validation
-    # ---------------------------------------
-
-    def validate_taxes(self):
-
-        warnings = []
-
-        taxes = (
-            self.data
-            .get("structuredData", {})
-            .get("taxes", {})
-        )
-
-        tax = taxes.get("taxOnIncome", 0)
-
-        cess = taxes.get(
-            "healthEducationCess",
-            0
-        )
-
-        net_tax = taxes.get(
-            "netTaxPayable",
-            0
-        )
-
-        expected_tax = tax + cess
-
-        if (
-            expected_tax > 0 and
-            abs(expected_tax - net_tax) > 5
-        ):
-            warnings.append(
-                f"Tax mismatch. Expected {expected_tax}, Found {net_tax}"
-            )
-
-        return warnings
-
-    # ---------------------------------------
-    # Employer Validation
-    # ---------------------------------------
-
-    def validate_employer(self):
-
-        warnings = []
-
-        employer = (
-            self.data
-            .get("structuredData", {})
-            .get("employer", {})
-        )
-
-        if not employer.get("name"):
-            warnings.append(
-                "Employer name not found."
-            )
-
-        if not self.validate_pan(
-            employer.get("pan", "")
-        ):
-            warnings.append(
-                "Employer PAN invalid."
-            )
-
-        if not self.validate_tan(
-            employer.get("tan", "")
-        ):
-            warnings.append(
-                "Employer TAN invalid."
-            )
-
-        return warnings
-
-    # ---------------------------------------
-    # Employee Validation
-    # ---------------------------------------
-
-    def validate_employee(self):
-
-        warnings = []
-
-        employee = (
-            self.data
-            .get("structuredData", {})
-            .get("employee", {})
-        )
-
-        if not employee.get("name"):
-            warnings.append(
-                "Employee name not found."
-            )
-
-        if not self.validate_pan(
-            employee.get("pan", "")
-        ):
-            warnings.append(
-                "Employee PAN invalid."
-            )
-
-        return warnings
-
-    # ---------------------------------------
-    # Assessment Validation
-    # ---------------------------------------
-
-    def validate_assessment(self):
-
-        warnings = []
-
-        assessment = (
-            self.data
-            .get("structuredData", {})
-            .get("assessment", {})
-        )
-
-        ay = assessment.get(
-            "assessmentYear",
-            ""
-        )
-
-        if not self.validate_assessment_year(ay):
-            warnings.append(
-                "Assessment year invalid."
-            )
-
-        if not assessment.get("periodFrom"):
-            warnings.append(
-                "Employment start date missing."
-            )
-
-        if not assessment.get("periodTo"):
-            warnings.append(
-                "Employment end date missing."
-            )
-
-        return warnings
-
-    # ---------------------------------------
-    # Confidence Adjustment
-    # ---------------------------------------
-
-    def calculate_confidence(self):
-
-        base = self.data.get(
-            "confidence",
-            0
-        )
-
-        warnings = self.get_all_warnings()
-
-        deduction = len(warnings) * 5
-
-        final_score = base - deduction
-
-        if final_score < 0:
-            final_score = 0
-
-        return final_score
-
-    # ---------------------------------------
-    # All Warnings
-    # ---------------------------------------
-
-    def get_all_warnings(self):
-
-        warnings = []
-
-        warnings.extend(
-            self.validate_employee()
-        )
-
-        warnings.extend(
-            self.validate_employer()
-        )
-
-        warnings.extend(
-            self.validate_assessment()
-        )
-
-        warnings.extend(
-            self.validate_salary()
-        )
-
-        warnings.extend(
-            self.validate_taxes()
-        )
-
-        return warnings
-
-    # ---------------------------------------
-    # Final Validation Result
-    # ---------------------------------------
+    def __init__(self, parsed_data: dict):
+        self.data = parsed_data
+        self.structured = parsed_data.get("structuredData", {})
+        self.doc_type = parsed_data.get("documentType", "")
 
     def validate(self):
 
-        warnings = self.get_all_warnings()
+        warnings = []
+
+        employer = self.structured.get("employer", {})
+        employee = self.structured.get("employee", {})
+        assessment = self.structured.get("assessment", {})
+        salary = self.structured.get("salary", {})
+        taxes = self.structured.get("taxes", {})
+        quarterly = self.structured.get("quarterlySummary", {})
+
+        if not employer.get("pan") or not PAN_RE.match(employer.get("pan", "")):
+            warnings.append("Employer PAN invalid or missing.")
+
+        if not employer.get("tan") or not TAN_RE.match(employer.get("tan", "")):
+            warnings.append("Employer TAN invalid or missing.")
+
+        if not employee.get("pan") or not PAN_RE.match(employee.get("pan", "")):
+            warnings.append("Employee PAN invalid or missing.")
+
+        if not assessment.get("assessmentYear") or not AY_RE.match(assessment.get("assessmentYear", "")):
+            warnings.append("Assessment year invalid or missing.")
+
+        if not employee.get("name"):
+            warnings.append("Employee name not detected.")
+
+        if not employer.get("name"):
+            warnings.append("Employer name not detected.")
+
+        # Salary / tax figures are only expected on Part B.
+        if self.doc_type == "FORM16_PART_B":
+
+            if not salary.get("salary17_1"):
+                warnings.append("Gross salary not detected.")
+
+            tax_payable = taxes.get("taxPayable", 0)
+            net_tax_payable = taxes.get("netTaxPayable", 0)
+
+            if tax_payable and net_tax_payable and tax_payable != net_tax_payable:
+                # Difference is fine if reliefs (section 89) etc. were
+                # subtracted; only flag if the gap looks like a parsing
+                # error (e.g. wildly different orders of magnitude).
+                if abs(tax_payable - net_tax_payable) > max(tax_payable, net_tax_payable) * 0.5:
+                    warnings.append(
+                        f"Tax mismatch. Tax payable {tax_payable}, "
+                        f"net tax payable {net_tax_payable}."
+                    )
+
+        # Quarterly totals are only expected on Part A.
+        if self.doc_type == "FORM16_PART_A":
+
+            quarters = quarterly.get("quarters", [])
+            total = quarterly.get("total", {})
+
+            if not quarters:
+                warnings.append("Quarterly TDS summary not detected.")
+            else:
+                computed_tax = round(sum(q["taxDeducted"] for q in quarters), 2)
+                expected_tax = total.get("taxDeducted")
+
+                if expected_tax is not None and computed_tax != expected_tax:
+                    warnings.append(
+                        f"Quarterly tax sum mismatch. Computed {computed_tax}, "
+                        f"stated total {expected_tax}."
+                    )
+
+        confidence = self.data.get("confidence", 0)
 
         return {
-
-            "isValid":
-                len(warnings) == 0,
-
-            "confidence":
-                self.calculate_confidence(),
-
-            "warnings":
-                warnings
+            "isValid": len(warnings) == 0,
+            "confidence": confidence,
+            "warnings": warnings
         }
