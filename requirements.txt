@@ -1,9 +1,11 @@
 fastapi
-uvicorn[standard]
-python-multipart
-pdfplumber
+uvicorn
 gunicorn
 pytesseract
-Pillow
 opencv-python
+Pillow
 pdf2image
+pdfplumber
+pdfminer.six
+python-multipart
+cryptography
