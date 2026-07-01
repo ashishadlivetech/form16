@@ -1,12 +1,9 @@
 fastapi
 uvicorn
 gunicorn
-pytesseract
-opencv-python
+ocrmypdf
 Pillow
-pdf2image
 pdfplumber
 pdfminer.six
 python-multipart
 cryptography
-
