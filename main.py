@@ -2,6 +2,8 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import pdfplumber
 import pytesseract
+import io
+from pdf2image import convert_from_bytes
 
 from parser import Form16Parser
 from validators import Form16Validator
@@ -52,34 +54,31 @@ def extract_pdf_text(pdf):
 # --------------------------------------------------
 # OCR Fallback (scanned / image-only PDFs)
 # --------------------------------------------------
-def extract_pdf_text_via_ocr(pdf, resolution=400):
+def extract_pdf_text_via_ocr(file_bytes):
     full_text = ""
-    ocr_error = None
 
-    for page in pdf.pages:
-        try:
-            image = page.to_image(resolution=resolution).original
-            page_text = pytesseract.image_to_string(image, config="--psm 6")
-            if page_text:
-                full_text += "\n" + page_text
-        except pytesseract.TesseractNotFoundError as e:
-            # The tesseract binary itself isn't installed on this machine.
-            # pytesseract only wraps the CLI tool - it does not bundle it.
-            ocr_error = (
-                "Tesseract OCR engine is not installed on this server. "
-                "Install it with 'apt-get install -y tesseract-ocr' "
-                "(Linux) or 'brew install tesseract' (Mac), then restart "
-                f"the server. Original error: {e}"
+    try:
+        images = convert_from_bytes(file_bytes, dpi=300)
+
+        print(f"Total OCR pages: {len(images)}")
+
+        for index, image in enumerate(images):
+            print(f"Running OCR on page {index + 1}")
+
+            page_text = pytesseract.image_to_string(
+                image,
+                config="--oem 3 --psm 6"
             )
-            break
-        except Exception as e:
-            ocr_error = f"OCR failed on a page: {e}"
-            # Keep trying remaining pages rather than aborting entirely.
-            continue
 
-    return full_text, ocr_error
+            full_text += "\n" + page_text
 
+        return full_text, None
 
+    except pytesseract.TesseractNotFoundError as e:
+        return "", f"Tesseract not installed: {e}"
+
+    except Exception as e:
+        return "", str(e)
 # --------------------------------------------------
 # Extract API
 # --------------------------------------------------
@@ -89,15 +88,15 @@ async def extract(file: UploadFile = File(...)):
         ocr_used = False
         ocr_error = None
 
-        with pdfplumber.open(file.file) as pdf:
-            text = extract_pdf_text(pdf)
+        file_bytes = await file.read()
 
-            # If the PDF has no embedded text layer (a scanned image
-            # rendered into the PDF rather than real text), fall back to
-            # OCR by rasterizing each page and running tesseract on it.
-            if not text.strip():
-                text, ocr_error = extract_pdf_text_via_ocr(pdf)
-                ocr_used = True
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            text = extract_pdf_text(pdf)
+        
+        if not text.strip():
+            print("No text layer found. Starting OCR...")
+            text, ocr_error = extract_pdf_text_via_ocr(file_bytes)
+            ocr_used = True
 
         if not text.strip():
             if ocr_error:
@@ -107,6 +106,8 @@ async def extract(file: UploadFile = File(...)):
                                 "also failed.",
                     "error": ocr_error
                 }
+                print("Extracted text length:", len(text))
+                print("OCR Used:", ocr_used)
             return {
                 "success": False,
                 "message": "No readable text found in PDF, even after OCR. "
