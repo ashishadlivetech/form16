@@ -204,29 +204,28 @@ def convert_scanned_pdf_and_extract(file_bytes: bytes):
 
     log.info("[OCR] Starting ocrmypdf conversion...")
 
+    # Memory-saving settings for low-RAM servers (512MB Render free/starter):
+    #   deskew=False  → skipping deskew saves ~600MB RAM (biggest saving)
+    #   jobs=1        → one page at a time, not all pages in parallel
+    #   optimize=0    → skip image compression (saves RAM + time)
+    OCR_OPTS = dict(
+        language="eng",
+        deskew=False,
+        jobs=1,
+        optimize=0,
+        jpeg_quality=70,
+        progress_bar=False,
+    )
+
     try:
-        ocrmypdf.ocr(
-            io.BytesIO(file_bytes),
-            output_buf,
-            language="eng",
-            deskew=True,
-            optimize=0,
-            progress_bar=False
-        )
+        ocrmypdf.ocr(io.BytesIO(file_bytes), output_buf, **OCR_OPTS)
         log.info("[OCR] ocrmypdf finished in %.2fs", time.time() - t_start)
 
     except ocrmypdf.exceptions.PriorOcrFoundError:
         log.warning("[OCR] PDF already has an OCR layer — retrying with redo_ocr=True")
         output_buf = io.BytesIO()
         try:
-            ocrmypdf.ocr(
-                io.BytesIO(file_bytes),
-                output_buf,
-                language="eng",
-                redo_ocr=True,
-                optimize=0,
-                progress_bar=False
-            )
+            ocrmypdf.ocr(io.BytesIO(file_bytes), output_buf, redo_ocr=True, **OCR_OPTS)
             log.info("[OCR] redo_ocr finished in %.2fs", time.time() - t_start)
         except Exception as e:
             log.error("[OCR] redo_ocr also failed: %s\n%s", e, traceback.format_exc())
