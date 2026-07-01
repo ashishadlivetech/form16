@@ -1,7 +1,8 @@
 fastapi
 uvicorn
 gunicorn
-ocrmypdf
+pytesseract
+pdf2image
 Pillow
 pdfplumber
 pdfminer.six
