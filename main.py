@@ -52,7 +52,58 @@ def home():
         "service": "Government Form16 Extractor"
     }
  
- 
+ @app.get("/debug")
+def debug():
+    import shutil, subprocess, sys, platform
+
+    results = {}
+
+    # Python packages
+    pkg_status = {}
+    for pkg in ["pdfplumber", "ocrmypdf", "PIL"]:
+        try:
+            mod = __import__(pkg)
+            pkg_status[pkg] = f"OK - {getattr(mod, '__version__', 'installed')}"
+        except ImportError as e:
+            pkg_status[pkg] = f"MISSING - {e}"
+    results["python_packages"] = pkg_status
+
+    # System binaries
+    bin_status = {}
+    for binary in ["tesseract", "pdftoppm", "gs", "pngquant"]:
+        path = shutil.which(binary)
+        bin_status[binary] = f"OK - {path}" if path else "MISSING"
+    results["system_binaries"] = bin_status
+
+    # Tesseract languages
+    if shutil.which("tesseract"):
+        try:
+            langs = subprocess.check_output(
+                ["tesseract", "--list-langs"], stderr=subprocess.STDOUT
+            ).decode().strip()
+            results["tesseract_languages"] = langs
+            results["tesseract_eng_available"] = "eng" in langs
+        except Exception as e:
+            results["tesseract_languages"] = f"ERROR - {e}"
+    else:
+        results["tesseract_eng_available"] = False
+
+    # Verdict
+    missing = []
+    if "MISSING" in bin_status.get("tesseract", ""):
+        missing.append("tesseract-ocr")
+    if not results.get("tesseract_eng_available", True):
+        missing.append("tesseract-ocr-eng")
+    if "MISSING" in bin_status.get("pdftoppm", ""):
+        missing.append("poppler-utils")
+    if "MISSING" in bin_status.get("gs", ""):
+        missing.append("ghostscript")
+
+    results["verdict"] = "ALL OK" if not missing else f"BROKEN - missing: {', '.join(missing)}"
+    results["platform"] = platform.platform()
+    results["python_version"] = sys.version
+
+    return results
 # --------------------------------------------------
 # Step 1 — Check if PDF has a real embedded text layer
 # --------------------------------------------------
